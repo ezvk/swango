@@ -155,12 +155,44 @@ static void xdg_output_update_all(void) {
 	}
 }
 
-/* 销毁指定输出对应的所有 xdg-output 资源（monitor 移除时调用） */
+/* 输出被移除时，让对应的 xdg-output 资源变为惰性（inert），而不是销毁它 */
 static void xdg_output_cleanup_output(struct wlr_output *wlr_output) {
 	struct MangoXDGOutput *output, *tmp;
 	wl_list_for_each_safe(output, tmp, &xdg_output_resources, link) {
-		if (output->wlr_output == wlr_output)
-			wl_resource_destroy(output->resource);
+		if (output->wlr_output != wlr_output)
+			continue;
+
+		// Do NOT call wl_resource_destroy() here.
+		//
+		// zxdg_output_v1 is created by the CLIENT, so only the client may
+		// destroy it. Destroying it from the compositor makes libwayland send
+		// wl_display.delete_id for that object id; the client then treats the id
+		// as free and reuses it for its next object, while its own legitimate
+		// destroy request is still in flight. The compositor receives a request
+		// for an id it no longer knows and answers with a fatal
+		// "invalid object", which kills the client.
+		//
+		// Captured with WAYLAND_DEBUG=1 on 2026-08-07, unplugging a DP output
+		// under noctalia. Object 30 was that output's zxdg_output_v1:
+		//
+		//   -> get_xdg_output(new id zxdg_output_v1#30, wl_output#29)
+		//      zxdg_output_v1#30.name("DP-2")
+		//      wl_display#1.delete_id(30)          <- 01.901800  compositor frees it
+		//   -> zxdg_output_v1#30.destroy()         <- 01.902551  client destroys after
+		//   -> create_immed(new id wl_buffer#30)   <- id recycled
+		//   -> wl_surface#48.attach(wl_buffer#30)
+		//      wl_display#1.error(..., "invalid object 30")
+		//
+		// The client died on every unplug, taking the bar and the shell with it.
+		//
+		// wlroots never does this: layer surfaces, ext-workspace groups and
+		// wl_output all keep their resource alive and merely clear its user
+		// data. Same idiom here -- drop our own bookkeeping, leave the client's
+		// object alone. xdg_output_handle_resource_destroy() already returns
+		// early on NULL user data, so the client's later destroy is a no-op.
+		wl_resource_set_user_data(output->resource, NULL);
+		wl_list_remove(&output->link);
+		free(output);
 	}
 }
 
