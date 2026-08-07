@@ -242,6 +242,36 @@ static bool togglehdr_output(Monitor *target, bool want) {
 	else
 		output_enable_hdr(target, &target->pending, false, false);
 
+	// Damage the whole output by hand before committing.
+	//
+	// wlroots calls scene_output_damage_whole() for a geometry change, a
+	// transform change, a scale change and a rendered gamma LUT change -- but
+	// NOT for an image description change (grep the call sites in
+	// types/scene/wlr_scene.c, 0.20.2 and master alike). Yet switching between
+	// PQ/BT.2020 and sRGB changes how every pixel has to be encoded.
+	//
+	// Measured on 2026-08-07: without this, every toggle left rectangles of the
+	// previous frame at whatever brightness they were mapped to when last drawn.
+	// They move from one toggle to the next, matching whatever was static, and
+	// toggling back does NOT repair them -- it only adds a fresh set, since
+	// neither direction damages. They clear only when something else happens to
+	// damage them: a window moving over them, or an OSD.
+	//
+	// Ruled out as a gamma problem by control: with the gamma LUT set to 1.0,
+	// the daemon killed and no zwlr_gamma_control_v1 in existence at all, the
+	// artefact still appeared.
+	//
+	// The damage ring is the right lever, and it is public. wlr_scene.c:2535
+	// derives the region actually re-rendered from
+	// wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, ...), so filling
+	// the ring forces the whole buffer to be redrawn. The scene's own
+	// scene_output_damage() also unions into pending_commit_damage, but that
+	// field is private and only feeds wlr_output_state_set_damage() at line
+	// 2439 -- i.e. the damage rectangle handed to the DRM commit, not what gets
+	// rendered. A reconfiguration scans out the whole frame anyway.
+	wlr_output_schedule_frame(target->wlr_output);
+	wlr_damage_ring_add_whole(&target->scene_output->damage_ring);
+
 	// Swapping the image description reconfigures the output, and wlroots
 	// refuses such a commit unless it is told the disruption is acceptable:
 	// "Set to true to allow output reconfiguration to occur which may result in
