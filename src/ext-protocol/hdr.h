@@ -239,12 +239,31 @@ void togglehdr(const Arg *arg) {
 		return;
 	}
 
+	// Snapshot BOTH flags. output_enable_hdr() writes is_hdr_enabling before the
+	// commit is even attempted, so a failed commit that only restored
+	// hdr_enable would leave the pair disagreeing -- and that pair is not
+	// cosmetic: is_hdr_enabling drives what mango renders while the connector
+	// keeps whatever the last successful commit put there. Measured on
+	// 2026-08-07: mango fell back to SDR rendering while the panel stayed in
+	// PQ/BT.2020, giving wildly oversaturated colours, and the next togglehdr
+	// was a no-op because hdr_enable claimed the opposite of the truth.
+	bool prev_enable = target->hdr_enable;
+	bool prev_enabling = target->is_hdr_enabling;
+
 	target->hdr_enable = want;
 
 	if (want)
 		output_state_setup_hdr(target, false, &target->pending);
 	else
 		output_enable_hdr(target, &target->pending, false, false);
+
+	// Swapping the image description reconfigures the output, and wlroots
+	// refuses such a commit unless it is told the disruption is acceptable:
+	// "Set to true to allow output reconfiguration to occur which may result in
+	// temporary output disruptions and content misrepresentations"
+	// (wlr_output.h). Without it every togglehdr failed on eDP-1 while the
+	// startup path succeeded, because that one goes through a modeset already.
+	target->pending.allow_reconfiguration = true;
 
 	// force = true: without it mango_scene_output_commit() returns early when
 	// wlr_scene_output_needs_frame() is false, and a still screen would swallow
@@ -253,7 +272,8 @@ void togglehdr(const Arg *arg) {
 								   true)) {
 		wlr_log(WLR_ERROR, "togglehdr: commit failed on %s, reverting",
 				target->wlr_output->name);
-		target->hdr_enable = !want;
+		target->hdr_enable = prev_enable;
+		target->is_hdr_enabling = prev_enabling;
 		// The commit helper only recycles pending on success; drop the rejected
 		// state by hand so it cannot leak into the next commit.
 		wlr_output_state_finish(&target->pending);
