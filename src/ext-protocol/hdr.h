@@ -49,13 +49,27 @@ static enum render_bit_depth bit_depth_from_format(uint32_t render_format) {
 	return MANGO_RENDER_BIT_DEPTH_DEFAULT;
 }
 
-static bool output_supports_hdr(const struct wlr_output *output,
-								const char **reason) {
+static bool output_supports_hdr(const Monitor *m, const char **reason) {
+	const struct wlr_output *output = m->wlr_output;
 	const char *r = NULL;
-	if (!(output->supported_primaries & WLR_COLOR_NAMED_PRIMARIES_BT2020))
+
+	// The first two checks are derived from the EDID. Some panels declare their
+	// HDR capability only inside a DisplayID 2.0 extension with the CTA-861
+	// blocks nested in a container (tag 0x81) -- legal EDID 1.4, but wlroots
+	// reads it through libdisplay-info's CTA path and comes back empty, so
+	// supported_primaries/supported_transfer_functions are 0 on a panel that is
+	// perfectly capable of PQ. `hdr_force:1` in the monitorrule is the escape
+	// hatch for exactly that case (Hyprland calls it `supports_hdr = 1`).
+	//
+	// The third check is NOT forceable: output_color_transform is a real
+	// renderer capability, not an EDID claim. Under the GLES renderer it is
+	// false and no config key can make BT.2020/PQ output work -- HDR needs the
+	// Vulkan renderer (WLR_RENDERER=vulkan).
+	if (!m->hdr_force &&
+		!(output->supported_primaries & WLR_COLOR_NAMED_PRIMARIES_BT2020))
 		r = "BT2020 primaries not supported";
-	else if (!(output->supported_transfer_functions &
-			   WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ))
+	else if (!m->hdr_force && !(output->supported_transfer_functions &
+								WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ))
 		r = "PQ transfer function not supported";
 	else if (!drw->features.output_color_transform)
 		r = "renderer doesn't support output color transforms";
@@ -70,7 +84,7 @@ void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 	if (!m->is_hdr_enabling && !enabled)
 		return;
 
-	if (!output_supports_hdr(m->wlr_output, NULL)) {
+	if (!output_supports_hdr(m, NULL)) {
 		m->is_hdr_enabling = false;
 		return;
 	}
@@ -93,6 +107,41 @@ void output_enable_hdr(Monitor *m, struct wlr_output_state *os, bool enabled,
 		.primaries = WLR_COLOR_NAMED_PRIMARIES_BT2020,
 		.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ,
 	};
+
+	// Mastering display metadata. Optional per wlr_output.h, but leaving it at
+	// zero -- which a bare designated initializer does -- means the panel gets
+	// an HDR_OUTPUT_METADATA infoframe whose primaries are 0.0 and whose
+	// luminances are 0. Measured on a Samsung ATNA40CU05-0 (ROG Zephyrus G14):
+	// mango, sway and labwc all sent 0/0/0 while Hyprland sent 616/616/400 with
+	// BT.2020 primaries and a D65 white point. The display has to tone-map
+	// against *something*, and zeros tell it nothing about the content.
+	//
+	// wlroots does not hand us the EDID luminances (wlr_output only exposes
+	// supported_primaries / supported_transfer_functions), so the values come
+	// from the monitorrule rather than from a second EDID parse. That also
+	// sidesteps the DisplayID problem entirely: a panel whose HDR block is
+	// unreachable can still be described correctly by hand.
+	//
+	// Luminances are in cd/m² (wlr_output.h). 0 means "unset" and is left as
+	// such, so a config that does not mention them behaves exactly as before.
+	if (m->hdr_max_lum > 0) {
+		wlr_color_primaries_from_named(&desc.mastering_display_primaries,
+									   WLR_COLOR_NAMED_PRIMARIES_BT2020);
+		desc.mastering_luminance.min = m->hdr_min_lum;
+		desc.mastering_luminance.max = m->hdr_max_lum;
+		// max_cll defaults to the mastering peak; max_fall is the frame-average
+		// ceiling and is meaningless without an explicit value, so it stays 0
+		// unless configured.
+		desc.max_cll = m->hdr_max_lum;
+		desc.max_fall = m->hdr_max_avg_lum;
+		if (!silent)
+			wlr_log(WLR_DEBUG,
+					"HDR: mastering luminance %.4f-%.0f cd/m², max_cll %.0f, "
+					"max_fall %.0f on %s",
+					desc.mastering_luminance.min, desc.mastering_luminance.max,
+					desc.max_cll, desc.max_fall, m->wlr_output->name);
+	}
+
 	m->is_hdr_enabling = true;
 	wlr_output_state_set_image_description(os, &desc);
 }
@@ -101,8 +150,7 @@ void output_state_setup_hdr(Monitor *m, bool silent,
 							struct wlr_output_state *state) {
 	uint32_t render_format = m->wlr_output->render_format;
 	const char *unsupported_reason = NULL;
-	bool hdr_supported =
-		output_supports_hdr(m->wlr_output, &unsupported_reason);
+	bool hdr_supported = output_supports_hdr(m, &unsupported_reason);
 	bool hdr_succeeded = false;
 
 	if (!hdr_supported) {

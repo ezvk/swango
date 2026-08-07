@@ -122,6 +122,10 @@ typedef struct {
 	int32_t vrr;				 // variable refresh rate
 	int32_t custom;				 // enable custom mode
 	int32_t hdr;				 // enable hdr mode
+	float hdr_min_lum;			 // mastering min luminance, cd/m² (0 = unset)
+	float hdr_max_lum;			 // mastering max luminance / max_cll, cd/m²
+	float hdr_max_avg_lum;		 // max frame-average light level, cd/m²
+	int32_t hdr_force;			 // ignore EDID-derived HDR capability checks
 	int32_t disable;			 // prefer disable
 } ConfigMonitorRule;
 
@@ -2190,6 +2194,10 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 		rule->refresh = 0.0f;
 		rule->vrr = 0;
 		rule->hdr = 0;
+		rule->hdr_min_lum = 0.0f;
+		rule->hdr_max_lum = 0.0f;
+		rule->hdr_max_avg_lum = 0.0f;
+		rule->hdr_force = 0;
 		rule->custom = 0;
 		rule->disable = 0;
 
@@ -2231,6 +2239,17 @@ bool parse_option(Config *config, char *key, char *value, int line_number) {
 					rule->vrr = CLAMP_INT(atoi(val), 0, 1);
 				} else if (strcmp(key, "hdr") == 0) {
 					rule->hdr = CLAMP_INT(atoi(val), 0, 1);
+				} else if (strcmp(key, "hdr_min_lum") == 0) {
+					// cd/m². OLED blacks sit well below 0.01, so the floor has
+					// to allow small fractions -- do not clamp to >= 1.
+					rule->hdr_min_lum = CLAMP_FLOAT(atof(val), 0.0f, 10000.0f);
+				} else if (strcmp(key, "hdr_max_lum") == 0) {
+					rule->hdr_max_lum = CLAMP_FLOAT(atof(val), 0.0f, 10000.0f);
+				} else if (strcmp(key, "hdr_max_avg_lum") == 0) {
+					rule->hdr_max_avg_lum =
+						CLAMP_FLOAT(atof(val), 0.0f, 10000.0f);
+				} else if (strcmp(key, "hdr_force") == 0) {
+					rule->hdr_force = CLAMP_INT(atoi(val), 0, 1);
 				} else if (strcmp(key, "disable") == 0) {
 					rule->disable = CLAMP_INT(atoi(val), 0, 1);
 				} else if (strcmp(key, "custom") == 0) {

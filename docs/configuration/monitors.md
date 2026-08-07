@@ -31,6 +31,10 @@ monitorrule=name:Values,Parameter:Values,Parameter:Values
 | `scale` | float | 0.01-100.0 | Monitor scale |
 | `vrr` | integer | 0, 1 | Enable variable refresh rate |
 | `hdr` | integer | 0, 1 | Enable hdr support |
+| `hdr_min_lum` | float | 0.0-10000.0 | Mastering display minimum luminance, cd/m² (0 = unset) |
+| `hdr_max_lum` | float | 0.0-10000.0 | Mastering display peak luminance, also sent as max_cll, cd/m² (0 = unset) |
+| `hdr_max_avg_lum` | float | 0.0-10000.0 | Max frame-average light level (max_fall), cd/m² (0 = unset) |
+| `hdr_force` | integer | 0, 1 | Enable HDR even when the EDID does not advertise BT.2020/PQ |
 | `rr` | integer | 0-7 | Monitor transform |
 | `custom` | integer | 0, 1 | Enable custom mode (not supported on all displays — may cause black screen) |
 | `disable` | integer | 0, 1 | Disable the monitor |
@@ -119,6 +123,43 @@ Tearing allows games to bypass the compositor's VSync for lower latency.
 env=WLR_RENDERER,vulkan
 monitorrule=name:eDP-1,model:0x15F5,width:1920,height:1080,refresh:60,x:0,y:0,scale:1,vrr:0,rr:0:hdr:1
 ```
+
+### Mastering display metadata
+
+`hdr:1` alone sends the display an HDR infoframe that declares BT.2020 primaries
+and the PQ transfer function, but leaves the *mastering display* fields at zero:
+zero primaries, zero luminance, zero max_cll, zero max_fall. Those fields tell the
+panel what the content was graded for, and a display that receives zeros has to
+guess how to tone-map. Set them to your panel's real numbers:
+
+```ini
+monitorrule=name:eDP-1,...,hdr:1,hdr_min_lum:0.0001,hdr_max_lum:616,hdr_max_avg_lum:400
+```
+
+The values come from your EDID rather than from wlroots, which does not expose
+them. `di-edid-decode` prints them under *HDR Static Metadata Data Block*
+(desired content max/min luminance and max frame-average luminance). If the block
+is absent, use the figures from the panel datasheet.
+
+`hdr_max_lum` is sent both as the mastering peak and as max_cll. Leaving any of
+the three at `0` leaves that field unset, which is the previous behaviour.
+
+### Panels whose EDID hides the HDR block
+
+Some panels declare HDR only inside a **DisplayID 2.0** extension, with the
+CTA-861 blocks nested in a container (tag `0x81`). This is legal EDID 1.4, but
+wlroots reads HDR capability through libdisplay-info's CTA path and comes back
+empty, so `hdr:1` is silently ignored on a panel that handles PQ perfectly well.
+
+`hdr_force:1` skips the two EDID-derived checks:
+
+```ini
+monitorrule=name:eDP-1,...,hdr:1,hdr_force:1,hdr_max_lum:616,hdr_max_avg_lum:400
+```
+
+It does **not** skip the renderer check: output colour transforms only exist in
+the Vulkan renderer, so `WLR_RENDERER=vulkan` is still required and no config key
+can substitute for it.
 
 
 ### Configuration
