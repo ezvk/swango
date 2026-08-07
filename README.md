@@ -14,6 +14,74 @@
 
 ---
 
+## swango — what this fork adds
+
+**swango** is a fork of [mango](https://github.com/mangowm/mango) (branch `wl-only`).
+The name is sway + mango: it brings over what sway and Hyprland do better on HDR, and
+fixes what was broken along the way. Everything below was measured on hardware, on two
+different panels — a Samsung ATNA40CU05-0 OLED and an RTK ZEUSLAP TYPEC — under
+wlroots 0.20 with the Vulkan renderer.
+
+### Mastering display metadata
+
+Upstream fills two of the six fields of `wlr_output_image_description`. The remaining
+four stay zero, so the panel receives an HDR infoframe with 0.0 primaries and zero
+luminance and has to guess how to tone-map. Four `monitorrule` keys fix that:
+
+| key | meaning |
+| :--- | :--- |
+| `hdr_min_lum` | mastering minimum luminance, cd/m² |
+| `hdr_max_lum` | mastering peak, also sent as `max_cll` |
+| `hdr_max_avg_lum` | `max_fall` |
+| `hdr_force` | enable HDR even when the EDID does not advertise BT.2020/PQ |
+
+```ini
+monitorrule=name:eDP-1,...,hdr:1,hdr_max_lum:616.884,hdr_max_avg_lum:400
+```
+
+Leave them unset and the fields stay zero — upstream behaviour, byte for byte.
+
+`hdr_force` exists for panels that declare HDR only inside a **DisplayID 2.0**
+extension, with the CTA-861 blocks nested in a `0x81` container. That is legal EDID
+1.4, but libdisplay-info's CTA path never descends into it, so `hdr:1` is silently
+dropped on hardware that drives PQ fine.
+
+### Runtime HDR toggle
+
+The equivalent of sway's `output <name> hdr on|off|toggle`. Upstream can only set HDR
+from `monitorrule`, so changing it means a config reload that re-applies mode, scale,
+position and transform on every output.
+
+```sh
+mmsg dispatch togglehdr              # toggle the focused monitor
+mmsg dispatch togglehdr,off,eDP-1    # a named output
+mmsg dispatch togglehdr,toggle,all   # every output at once
+```
+
+With `all`, toggle takes **one** decision for every output — if anything is on,
+everything goes off — instead of flipping each monitor against its own state, which
+would leave a multi-monitor desk half on and half off.
+
+### Two fixes
+
+**Stale regions after an HDR switch.** wlroots damages the whole output for a
+geometry, transform, scale or rendered-gamma change, but not for an image description
+change — even though that changes how every pixel must be encoded. Anything left
+undamaged kept the luminance mapping it had when last drawn, so a static desktop was
+left with flat rectangles at the wrong brightness. swango damages the output itself
+before committing.
+
+**Crash on display unplug.** `xdg_output_cleanup_output()` called
+`wl_resource_destroy()` on a `zxdg_output_v1`, an object created by the *client*.
+libwayland then sends `delete_id`, the client reuses the id while its own destroy
+request is still in flight, and the next request hits an unknown object — a fatal
+`invalid object` that kills the client. With a layer-shell bar running, that took down
+the bar and the shell on every unplug. Fixed by making the resource inert, the idiom
+wlroots uses everywhere. Proposed upstream as
+[mangowm/mango#1258](https://github.com/mangowm/mango/pull/1258).
+
+---
+
 https://github.com/user-attachments/assets/bb83004a-0563-4b48-ad89-6461a9b78b1f
 
 > See all layouts in action at [mangowm.github.io](https://mangowm.github.io/)
