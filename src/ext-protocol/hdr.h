@@ -193,3 +193,74 @@ void output_state_setup_hdr(Monitor *m, bool silent,
 
 	output_enable_hdr(m, state, hdr_succeeded, silent);
 }
+
+// togglehdr[,on|off|toggle][,<monitor name>]
+//
+// Runtime equivalent of sway's `output <name> hdr on|off|toggle`. Until now the
+// only way to change HDR was to edit monitorrule and reload the config, which
+// re-applies mode, scale, position and transform on every output. HDR is worth
+// flipping on its own: it is the one setting you want to A/B against the same
+// content, and on panels where the backlight goes inert under PQ it is also the
+// only way to get brightness control back without logging out.
+void togglehdr(const Arg *arg) {
+	Monitor *m = NULL, *target = NULL;
+
+	if (arg->v && *arg->v) {
+		wl_list_for_each(m, &mons, link) {
+			if (m->wlr_output->enabled &&
+				strcmp(m->wlr_output->name, arg->v) == 0) {
+				target = m;
+				break;
+			}
+		}
+		if (!target) {
+			wlr_log(WLR_ERROR, "togglehdr: no enabled output named %s", arg->v);
+			return;
+		}
+	} else {
+		target = selmon;
+	}
+
+	if (!target || !target->wlr_output->enabled || !target->scene_output)
+		return;
+
+	// arg->i: 1 = on, 0 = off, -1 = toggle (also the default when no argument
+	// was given, so a bare `togglehdr` binding does the obvious thing).
+	bool want = arg->i < 0 ? !target->hdr_enable : (arg->i != 0);
+	if (want == target->hdr_enable)
+		return;
+
+	// Check before mutating, so a refusal leaves hdr_enable untouched and the
+	// next call still reports the true state.
+	const char *reason = NULL;
+	if (want && !output_supports_hdr(target, &reason)) {
+		wlr_log(WLR_INFO, "togglehdr: HDR unavailable on %s: %s",
+				target->wlr_output->name, reason);
+		return;
+	}
+
+	target->hdr_enable = want;
+
+	if (want)
+		output_state_setup_hdr(target, false, &target->pending);
+	else
+		output_enable_hdr(target, &target->pending, false, false);
+
+	// force = true: without it mango_scene_output_commit() returns early when
+	// wlr_scene_output_needs_frame() is false, and a still screen would swallow
+	// the change until something else happened to damage the output.
+	if (!mango_scene_output_commit(target->scene_output, &target->pending,
+								   true)) {
+		wlr_log(WLR_ERROR, "togglehdr: commit failed on %s, reverting",
+				target->wlr_output->name);
+		target->hdr_enable = !want;
+		// The commit helper only recycles pending on success; drop the rejected
+		// state by hand so it cannot leak into the next commit.
+		wlr_output_state_finish(&target->pending);
+		wlr_output_state_init(&target->pending);
+		return;
+	}
+
+	wlr_output_effective_resolution(target->wlr_output, &target->m.width,
+									&target->m.height);
+}

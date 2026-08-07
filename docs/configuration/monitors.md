@@ -124,6 +124,30 @@ env=WLR_RENDERER,vulkan
 monitorrule=name:eDP-1,model:0x15F5,width:1920,height:1080,refresh:60,x:0,y:0,scale:1,vrr:0,rr:0:hdr:1
 ```
 
+### Toggling HDR at runtime
+
+`monitorrule` decides the state at startup; `togglehdr` changes it without a
+config reload, the way sway's `output <name> hdr on|off|toggle` does.
+
+```ini
+# keybinding: flip HDR on the focused monitor
+bind=SUPER+SHIFT,h,togglehdr
+```
+
+```sh
+mmsg -d 'togglehdr'              # toggle the focused monitor
+mmsg -d 'togglehdr,on'           # force on
+mmsg -d 'togglehdr,off,eDP-1'    # force off on a named output
+```
+
+With no argument it toggles, which is what a keybinding usually wants. Reloading
+the config re-applies `monitorrule` and therefore overrides whatever `togglehdr`
+last set.
+
+This is worth having for two reasons: it is the only way to A/B the same content
+with and without HDR, and on panels whose backlight goes inert once PQ is engaged
+it gets brightness control back without logging out.
+
 ### Mastering display metadata
 
 `hdr:1` alone sends the display an HDR infoframe that declares BT.2020 primaries

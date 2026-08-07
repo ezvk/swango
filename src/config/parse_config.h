@@ -1133,6 +1133,18 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 		(*arg).i = parse_circle_direction(arg_value);
 	} else if (strcmp(func_name, "toggleglobal") == 0) {
 		func = toggleglobal;
+	} else if (strcmp(func_name, "togglehdr") == 0) {
+		// togglehdr[,on|off|toggle][,<monitor name>]
+		// Mirrors sway's `output <name> hdr on|off|toggle`. No argument at all
+		// means "toggle the focused monitor", which is what a keybinding wants.
+		func = togglehdr;
+		if (strcmp(arg_value, "on") == 0)
+			(*arg).i = 1;
+		else if (strcmp(arg_value, "off") == 0)
+			(*arg).i = 0;
+		else
+			(*arg).i = -1; // toggle, and the default for an empty argument
+		(*arg).v = (arg_value2 && *arg_value2) ? strdup(arg_value2) : NULL;
 	} else if (strcmp(func_name, "toggleoverview") == 0) {
 		func = toggleoverview;
 		(*arg).i = atoi(arg_value);
