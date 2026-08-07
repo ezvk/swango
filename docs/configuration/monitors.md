@@ -148,6 +148,12 @@ This is worth having for two reasons: it is the only way to A/B the same content
 with and without HDR, and on panels whose backlight goes inert once PQ is engaged
 it gets brightness control back without logging out.
 
+That second claim was checked rather than assumed, on a Samsung ATNA40CU05-0
+(amdgpu): with HDR on, writing `amdgpu_bl1` changes the sysfs value and the panel
+ignores it; after `togglehdr,off` the same write visibly dims the screen. Note
+that a compositor-side gamma daemon keeps working in both modes, so if your
+brightness keys go through one, they are not testing this.
+
 ### Mastering display metadata
 
 `hdr:1` alone sends the display an HDR infoframe that declares BT.2020 primaries
@@ -167,6 +173,14 @@ is absent, use the figures from the panel datasheet.
 
 `hdr_max_lum` is sent both as the mastering peak and as max_cll. Leaving any of
 the three at `0` leaves that field unset, which is the previous behaviour.
+
+> **`hdr_min_lum` currently has no effect**, and not because of this code.
+> `backend/drm/atomic.c` in wlroots 0.20.x multiplies the minimum by `0.0001`
+> where the DRM field is *already* expressed in units of 0.0001 cd/m², so the
+> conversion needs `* 10000`. Every plausible value underflows to 0 in the
+> `__u16` field, and no wlroots compositor can set a non-zero minimum. The key
+> is kept so it works once wlroots is fixed. `max`, `max_cll` and `max_fall` are
+> unaffected — they are in units of 1 cd/m² and are passed straight through.
 
 ### Panels whose EDID hides the HDR block
 
