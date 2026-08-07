@@ -135,14 +135,27 @@ bind=SUPER+SHIFT,h,togglehdr
 ```
 
 ```sh
-mmsg -d 'togglehdr'              # toggle the focused monitor
-mmsg -d 'togglehdr,on'           # force on
-mmsg -d 'togglehdr,off,eDP-1'    # force off on a named output
+mmsg dispatch togglehdr              # toggle the focused monitor
+mmsg dispatch togglehdr,on           # force on
+mmsg dispatch togglehdr,off,eDP-1    # force off on a named output
+mmsg dispatch togglehdr,toggle,all   # every output at once
 ```
 
 With no argument it toggles, which is what a keybinding usually wants. Reloading
 the config re-applies `monitorrule` and therefore overrides whatever `togglehdr`
 last set.
+
+`all` in place of a monitor name applies to every enabled output. In toggle mode
+it makes **one** decision for all of them — if anything is currently on,
+everything goes off — rather than flipping each output against its own state,
+which would let a single key leave a multi-monitor desk half on and half off and
+then swap the halves on the next press. Outputs that cannot do HDR are skipped
+without their state being touched, so this is safe on a mixed SDR/HDR desk.
+
+On a multi-monitor setup, naming the output explicitly is usually better than
+relying on focus: `togglehdr` with no name targets the focused *monitor*, so on a
+desk where only the laptop panel does HDR the key would silently do nothing
+whenever focus sits on an external screen.
 
 This is worth having for two reasons: it is the only way to A/B the same content
 with and without HDR, and on panels whose backlight goes inert once PQ is engaged

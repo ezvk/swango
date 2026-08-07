@@ -194,7 +194,7 @@ void output_state_setup_hdr(Monitor *m, bool silent,
 	output_enable_hdr(m, state, hdr_succeeded, silent);
 }
 
-// togglehdr[,on|off|toggle][,<monitor name>]
+// togglehdr[,on|off|toggle][,<monitor name>|all]
 //
 // Runtime equivalent of sway's `output <name> hdr on|off|toggle`. Until now the
 // only way to change HDR was to edit monitorrule and reload the config, which
@@ -202,41 +202,26 @@ void output_state_setup_hdr(Monitor *m, bool silent,
 // flipping on its own: it is the one setting you want to A/B against the same
 // content, and on panels where the backlight goes inert under PQ it is also the
 // only way to get brightness control back without logging out.
-void togglehdr(const Arg *arg) {
-	Monitor *m = NULL, *target = NULL;
-
-	if (arg->v && *arg->v) {
-		wl_list_for_each(m, &mons, link) {
-			if (m->wlr_output->enabled &&
-				strcmp(m->wlr_output->name, arg->v) == 0) {
-				target = m;
-				break;
-			}
-		}
-		if (!target) {
-			wlr_log(WLR_ERROR, "togglehdr: no enabled output named %s", arg->v);
-			return;
-		}
-	} else {
-		target = selmon;
-	}
-
+//
+// Applies the change to a single output. Returns whether anything was committed;
+// callers iterating over outputs use that to stay quiet about the ones that
+// were already in the requested state.
+static bool togglehdr_output(Monitor *target, bool want) {
 	if (!target || !target->wlr_output->enabled || !target->scene_output)
-		return;
+		return false;
 
-	// arg->i: 1 = on, 0 = off, -1 = toggle (also the default when no argument
-	// was given, so a bare `togglehdr` binding does the obvious thing).
-	bool want = arg->i < 0 ? !target->hdr_enable : (arg->i != 0);
 	if (want == target->hdr_enable)
-		return;
+		return false;
 
 	// Check before mutating, so a refusal leaves hdr_enable untouched and the
-	// next call still reports the true state.
+	// next call still reports the true state. This is also what makes the
+	// "all" form safe on a mixed desk: SDR outputs fail here and are skipped
+	// without their state ever being touched.
 	const char *reason = NULL;
 	if (want && !output_supports_hdr(target, &reason)) {
 		wlr_log(WLR_INFO, "togglehdr: HDR unavailable on %s: %s",
 				target->wlr_output->name, reason);
-		return;
+		return false;
 	}
 
 	// Snapshot BOTH flags. output_enable_hdr() writes is_hdr_enabling before the
@@ -278,9 +263,64 @@ void togglehdr(const Arg *arg) {
 		// state by hand so it cannot leak into the next commit.
 		wlr_output_state_finish(&target->pending);
 		wlr_output_state_init(&target->pending);
-		return;
+		return false;
 	}
 
 	wlr_output_effective_resolution(target->wlr_output, &target->m.width,
 									&target->m.height);
+	return true;
+}
+
+void togglehdr(const Arg *arg) {
+	// arg->i: 1 = on, 0 = off, -1 = toggle (also the default when no argument
+	// was given, so a bare `togglehdr` binding does the obvious thing).
+	if (arg->v && strcmp(arg->v, "all") == 0) {
+		Monitor *m = NULL;
+		bool want;
+
+		if (arg->i < 0) {
+			// ONE decision, applied to every output. Flipping each monitor
+			// against its own state would let a single key leave the desk half
+			// on and half off, and the next press would swap the halves rather
+			// than fix them. "Anything on -> turn everything off" always
+			// converges, and matches what a global switch is expected to do.
+			bool any_on = false;
+			wl_list_for_each(m, &mons, link) {
+				if (m->wlr_output->enabled && m->hdr_enable) {
+					any_on = true;
+					break;
+				}
+			}
+			want = !any_on;
+		} else {
+			want = arg->i != 0;
+		}
+
+		wl_list_for_each(m, &mons, link)
+			togglehdr_output(m, want);
+		return;
+	}
+
+	Monitor *m = NULL, *target = NULL;
+
+	if (arg->v && *arg->v) {
+		wl_list_for_each(m, &mons, link) {
+			if (m->wlr_output->enabled &&
+				strcmp(m->wlr_output->name, arg->v) == 0) {
+				target = m;
+				break;
+			}
+		}
+		if (!target) {
+			wlr_log(WLR_ERROR, "togglehdr: no enabled output named %s", arg->v);
+			return;
+		}
+	} else {
+		target = selmon;
+	}
+
+	if (!target)
+		return;
+
+	togglehdr_output(target, arg->i < 0 ? !target->hdr_enable : (arg->i != 0));
 }
