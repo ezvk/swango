@@ -1144,7 +1144,15 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 			(*arg).i = 0;
 		else
 			(*arg).i = -1; // toggle, and the default for an empty argument
-		(*arg).v = (arg_value2 && *arg_value2) ? strdup(arg_value2) : NULL;
+		// "not given" has two spellings here: the IPC path passes "", while the
+		// keybinding parser initialises its buffers to "0". Same rule as
+		// combine_args_until_empty(): "empty string or only contains 0
+		// (initialized)". Treating "0" as a name made a bare `togglehdr` bind
+		// look for a monitor literally called "0" and give up, so the key did
+		// nothing while `mmsg dispatch togglehdr` worked.
+		bool has_name = arg_value2 && arg_value2[0] != '\0' &&
+						!(strlen(arg_value2) == 1 && arg_value2[0] == '0');
+		(*arg).v = has_name ? strdup(arg_value2) : NULL;
 	} else if (strcmp(func_name, "toggleoverview") == 0) {
 		func = toggleoverview;
 		(*arg).i = atoi(arg_value);
