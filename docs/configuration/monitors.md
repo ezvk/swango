@@ -174,13 +174,16 @@ is absent, use the figures from the panel datasheet.
 `hdr_max_lum` is sent both as the mastering peak and as max_cll. Leaving any of
 the three at `0` leaves that field unset, which is the previous behaviour.
 
-> **`hdr_min_lum` currently has no effect**, and not because of this code.
-> `backend/drm/atomic.c` in wlroots 0.20.x multiplies the minimum by `0.0001`
-> where the DRM field is *already* expressed in units of 0.0001 cd/m², so the
-> conversion needs `* 10000`. Every plausible value underflows to 0 in the
-> `__u16` field, and no wlroots compositor can set a non-zero minimum. The key
-> is kept so it works once wlroots is fixed. `max`, `max_cll` and `max_fall` are
-> unaffected — they are in units of 1 cd/m² and are passed straight through.
+> **`hdr_min_lum` has no effect on wlroots 0.20.x**, and not because of this
+> code. `backend/drm/atomic.c` multiplied the minimum by `0.0001` where the DRM
+> field is *already* expressed in units of 0.0001 cd/m², so the conversion needs
+> `* 10000`. Every plausible value underflowed to 0 in the `__u16` field.
+>
+> Fixed upstream on 2026-07-20 by wlroots commit `f6a01b40`, "backend/drm: fix
+> HDR min display mastering luminance encoding", but **not backported to the
+> 0.20 branch** — so it still applies to anything built against 0.20.x. `max`,
+> `max_cll` and `max_fall` were never affected: they are in units of 1 cd/m² and
+> are passed straight through.
 
 ### Panels whose EDID hides the HDR block
 
