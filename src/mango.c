@@ -5234,7 +5234,9 @@ void outputmgrapply(struct wl_listener *listener, void *data) {
 static void
 handle_new_foreign_toplevel_capture_request(struct wl_listener *listener,
 											void *data) {
-	struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request
+	// wlroots 0.21 : la structure porte desormais le suffixe _request_event,
+	// et le signal s'appelle capture_request (etait new_request).
+	struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_event
 		*request = data;
 	Client *c = request->toplevel_handle->data;
 
@@ -6479,7 +6481,7 @@ void setup(void) {
 	new_foreign_toplevel_capture_request.notify =
 		handle_new_foreign_toplevel_capture_request;
 	wl_signal_add(&ext_foreign_toplevel_image_capture_source_manager_v1->events
-					   .new_request,
+					   .capture_request,
 				  &new_foreign_toplevel_capture_request);
 
 	tearing_control = wlr_tearing_control_manager_v1_create(dpy, 1);
@@ -6537,7 +6539,9 @@ void setup(void) {
 	wlr_server_decoration_manager_set_default_mode(
 		wlr_server_decoration_manager_create(dpy),
 		WLR_SERVER_DECORATION_MANAGER_MODE_SERVER);
-	xdg_decoration_mgr = wlr_xdg_decoration_manager_v1_create(dpy);
+	// wlroots 0.21 exige une version de protocole. 2 est le maximum supporte
+	// (DECORATION_MANAGER_VERSION dans types/wlr_xdg_decoration_v1.c).
+	xdg_decoration_mgr = wlr_xdg_decoration_manager_v1_create(dpy, 2);
 	wl_signal_add(&xdg_decoration_mgr->events.new_toplevel_decoration,
 				  &new_xdg_decoration);
 
