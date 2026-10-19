@@ -916,6 +916,15 @@ void handle_output_destroy(struct wl_listener *listener, void *data) {
 
 void set_selected_monitor(Monitor *m) { server.selected_monitor = m; }
 
+static bool monitor_name_enabled(const char *name) {
+	Monitor *om = NULL;
+	wl_list_for_each(om, &server.monitors, link) {
+		if (om->wlr_output->enabled && strcmp(om->wlr_output->name, name) == 0)
+			return true;
+	}
+	return false;
+}
+
 void monitor_close(Monitor *m) {
 	/* update selected_monitor if needed and
 	 * move closed monitor's clients to the focused one */
@@ -964,6 +973,15 @@ void monitor_close(Monitor *m) {
 			// record the oldmonname which is used to restore
 			if (c->oldmonname[0] == '\0') {
 				client_update_oldmonname_record(c, m);
+			} else if (strcmp(c->oldmonname, m->wlr_output->name) == 0) {
+				memset(c->fallbackmonname, 0, sizeof(c->fallbackmonname));
+			} else {
+				// the client was already away from its old monitor: also
+				// remember this one, to come back here while the old one
+				// is still missing
+				strncpy(c->fallbackmonname, m->wlr_output->name,
+						sizeof(c->fallbackmonname) - 1);
+				c->fallbackmonname[sizeof(c->fallbackmonname) - 1] = '\0';
 			}
 		}
 	}
@@ -1113,9 +1131,13 @@ void handle_output_layout_change(struct wl_listener *listener, void *data) {
 					resize(c, c->geom, (ResizeOpts){.interact = 1});
 			}
 
-			// restore window to old monitor
+			// restore window to old monitor, or to the fallback one while
+			// the old monitor is missing
 			if (c->mon && c->mon != m && client_surface(c)->mapped &&
-				strcmp(c->oldmonname, m->wlr_output->name) == 0) {
+				(strcmp(c->oldmonname, m->wlr_output->name) == 0 ||
+				 (c->fallbackmonname[0] != '\0' &&
+				  strcmp(c->fallbackmonname, m->wlr_output->name) == 0 &&
+				  !monitor_name_enabled(c->oldmonname)))) {
 				client_change_mon(c, m);
 			}
 		}

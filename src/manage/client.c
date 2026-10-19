@@ -2153,6 +2153,7 @@ void init_client_properties(Client *c) {
 	c->float_geom.y = 0;
 	c->scroller_stack_proportion = 0.0f;
 	memset(c->oldmonname, 0, sizeof(c->oldmonname));
+	memset(c->fallbackmonname, 0, sizeof(c->fallbackmonname));
 	memcpy(c->opacity_animation.initial_border_color, config.bordercolor,
 		   sizeof(c->opacity_animation.initial_border_color));
 	memcpy(c->opacity_animation.current_border_color, config.bordercolor,
@@ -4061,6 +4062,7 @@ void client_update_oldmonname_record(Client *c, Monitor *m) {
 	memset(c->oldmonname, 0, sizeof(c->oldmonname));
 	strncpy(c->oldmonname, m->wlr_output->name, sizeof(c->oldmonname) - 1);
 	c->oldmonname[sizeof(c->oldmonname) - 1] = '\0';
+	memset(c->fallbackmonname, 0, sizeof(c->fallbackmonname));
 }
 
 void client_apply_bounds(Client *c, struct wlr_box *bbox) {
