@@ -933,8 +933,9 @@ void reset_keyboard_layout(void) {
 
 	wlr_keyboard_set_keymap(keyboard, new_keymap);
 
-	wlr_keyboard_notify_modifiers(keyboard, depressed, latched, locked_mods, 0);
-	keyboard->modifiers.group = current; // Keep the same layout index
+	// Keep the same layout index
+	wlr_keyboard_notify_modifiers(keyboard, depressed, latched, locked_mods,
+								  current);
 
 	// Update seat
 	wlr_seat_set_keyboard(server.seat, keyboard);
@@ -951,8 +952,8 @@ void reset_keyboard_layout(void) {
 		struct wlr_keyboard *tkb = (struct wlr_keyboard *)id->device_data;
 
 		wlr_keyboard_set_keymap(tkb, keyboard->keymap);
-		wlr_keyboard_notify_modifiers(tkb, depressed, latched, locked_mods, 0);
-		tkb->modifiers.group = 0;
+		wlr_keyboard_notify_modifiers(tkb, depressed, latched, locked_mods,
+									  current);
 
 		// 7. Update the seat
 		wlr_seat_set_keyboard(server.seat, tkb);
