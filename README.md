@@ -14,6 +14,38 @@
 
 ---
 
+## swango — what this fork adds
+
+**swango** is a fork of [mango](https://github.com/mangowm/mango) that tracks upstream
+`main`. It carries fixes that are tested on hardware, then proposed upstream; a fix
+leaves this fork once upstream has it. `main` here is upstream `main` plus this
+section. Each fix lives on its own branch, based on upstream `main`.
+
+### Current branches
+
+| branch | fixes |
+| :--- | :--- |
+| `monitor-fallback` | Windows do not come back to the laptop panel when the lid opens. A window remembers only the first monitor it was evicted from, so after an undock it keeps pointing to that one forever. A second record, the fallback monitor, brings it back to the panel while the original monitor is still missing, without breaking the return to the original. |
+| `keymap-reload-keep-layout` | Reloading the config (`reload_config`, or a lid switch bound to it) resets every keyboard to the first layout, e.g. back to `us` with `xkb_rules_layout=us,fr`. The current layout index is now kept. |
+
+### Changelog
+
+- **2026-11-03** — `monitor-fallback` and `keymap-reload-keep-layout` rebased onto
+  upstream `main` (`9d1b0c27`). Both apply without changes.
+- **2026-10-27** — `keymap-reload-keep-layout`. Tested on an Intel laptop: lid closed
+  and reopened, the keyboard stays on `fr`.
+- **2026-10-19** — `monitor-fallback`. Tested with a laptop panel and two USB-C
+  monitors: the window goes back to the panel when the lid opens, and back to the
+  first monitor when it is plugged in again.
+- **2026-09-12** — merged upstream, removed from this fork:
+  HDR mastering display metadata, the `togglehdr` dispatch and full damage on an
+  image description change ([#1259](https://github.com/mangowm/mango/pull/1259));
+  inert `xdg_output` resources on unplug
+  ([#1258](https://github.com/mangowm/mango/pull/1258)). The old `hdr-metadata`
+  branch is kept for history only.
+
+---
+
 https://github.com/user-attachments/assets/bb83004a-0563-4b48-ad89-6461a9b78b1f
 
 https://github.com/user-attachments/assets/be85e13f-7798-456d-957e-f8931687392e
