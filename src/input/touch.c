@@ -3,9 +3,11 @@
 #include "mango/common/log.h"
 #include "mango/common/server.h"
 #include "mango/common/util.h"
+#include "mango/dispatch/bind.h"
 #include "mango/input/pointer.h"
 #include "mango/ipc/ipc.h"
 #include "mango/manage/client.h"
+#include "mango/manage/layer.h"
 #include "mango/manage/misc.h"
 #include "mango/manage/monitor.h"
 #include <wayland-client-core.h>
@@ -14,6 +16,7 @@
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_idle_notify_v1.h>
 #include <wlr/types/wlr_input_device.h>
+#include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_touch.h>
 
@@ -146,6 +149,40 @@ void touch_apply_xwayland_scale(struct wlr_surface *surface, double *sx,
 #endif
 }
 
+// Focuses what a touch down lands on, as a left click does in
+// pointer_process_button_press(): the monitor, the window, or a layer surface
+// with on-demand keyboard interactivity. In the overview, a touched window is
+// jumped to instead. Returns true when the touch is consumed and must not be
+// sent to the surface.
+static bool touch_focus(struct wlr_surface *surface, double lx, double ly) {
+	Client *c = NULL;
+	LayerSurface *l = NULL;
+
+	set_selected_monitor(monitor_at_point(lx, ly));
+	if (server.session_locked)
+		return false;
+
+	if (toplevel_from_wlr_surface(surface, &c, &l) < 0)
+		return false;
+
+	if (c && c->scene && c->scene->node.enabled && VISIBLEON(c, c->mon) &&
+		(!client_is_unmanaged(c) || client_wants_focus(c)))
+		client_focus(c, 1);
+
+	// Must not steal focus from an exclusive-focus layer.
+	if (l && !server.exclusive_focus &&
+		l->layer_surface->current.keyboard_interactive ==
+			ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND)
+		layer_focus(l);
+
+	if (c && server.selected_monitor && server.selected_monitor->isoverview) {
+		toggle_overview(&(Arg){.tc = c});
+		return true;
+	}
+
+	return false;
+}
+
 void handle_cursor_touch_down(struct wl_listener *listener, void *data) {
 	struct wlr_touch_down_event *event = data;
 	struct touch_point *point = ecalloc(1, sizeof(*point));
@@ -174,6 +211,18 @@ void handle_cursor_touch_down(struct wl_listener *listener, void *data) {
 	// otherwise fall back to mouse emulation.
 	point->touch_protocol = point->surface && wlr_surface_accepts_touch(
 												  point->surface, server.seat);
+
+	// Pointer emulation focuses through the normal button handling.
+	if (point->touch_protocol || !config.touch_enable_mouse_emulation) {
+		double lx, ly;
+		wlr_cursor_absolute_to_layout_coords(server.cursor, &event->touch->base,
+											 event->x, event->y, &lx, &ly);
+		if (touch_focus(point->surface, lx, ly)) {
+			pointer_hide_cursor(NULL);
+			free(point);
+			return;
+		}
+	}
 
 	wl_list_insert(&server.touch_points, &point->link);
 	int touch_point_count = wl_list_length(&server.touch_points);
